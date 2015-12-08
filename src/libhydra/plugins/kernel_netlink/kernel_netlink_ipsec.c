@@ -2868,6 +2868,39 @@ METHOD(kernel_ipsec_t, destroy, void,
 	free(this);
 }
 
+/**
+ * Configure SPD hasing threshold for an address family
+ */
+static void setup_spd_hash_thresh(private_kernel_netlink_ipsec_t *this,
+								  char *key, int type, u_int8_t def)
+{
+	struct xfrmu_spdhthresh *thresh;
+	struct nlmsghdr *hdr;
+	netlink_buf_t request;
+
+	memset(&request, 0, sizeof(request));
+
+	hdr = &request.hdr;
+	hdr->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	hdr->nlmsg_type = XFRM_MSG_NEWSPDINFO;
+	hdr->nlmsg_len = NLMSG_LENGTH(sizeof(u_int32_t));
+
+	thresh = netlink_reserve(hdr, sizeof(request), type, sizeof(*thresh));
+	thresh->lbits = lib->settings->get_int(lib->settings,
+							"%s.plugins.kernel-netlink.spdh_thresh.%s.lbits",
+							def, lib->ns, key);
+	thresh->rbits = lib->settings->get_int(lib->settings,
+							"%s.plugins.kernel-netlink.spdh_thresh.%s.rbits",
+							def, lib->ns, key);
+	if (thresh->lbits != def || thresh->rbits != def)
+	{
+		if (this->socket_xfrm->send_ack(this->socket_xfrm, hdr) != SUCCESS)
+		{
+			DBG1(DBG_KNL, "setting SPD hash threshold failed");
+		}
+	}
+}
+
 /*
  * Described in header.
  */
@@ -2934,6 +2967,9 @@ kernel_netlink_ipsec_t *kernel_netlink_ipsec_create()
 		destroy(this);
 		return NULL;
 	}
+
+	setup_spd_hash_thresh(this, "ipv4", XFRMA_SPD_IPV4_HTHRESH, 32);
+	setup_spd_hash_thresh(this, "ipv6", XFRMA_SPD_IPV6_HTHRESH, 128);
 
 	if (register_for_events)
 	{
